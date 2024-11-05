@@ -13,7 +13,7 @@ export const createWppRouter = ({wppModel}) => {
   wppRouter.post('/whatsapp/init/:number', validateParamsSchema(phoneNumberSchema), wppController.initClient);
   wppRouter.get('/whatsapp/status/:number', validateParamsSchema(phoneNumberSchema), wppController.checkStatus);
   wppRouter.post('/whatsapp/logout/:number', validateParamsSchema(phoneNumberSchema), wppController.logout);
-  
+  wppRouter.post('/whatsapp/send-message', wppController.sendMessage);
   // wppRouter.post('/whatsapp/send', wppController.sendMessage);
 
   return wppRouter;

@@ -8,18 +8,18 @@ const { Client, RemoteAuth } = pkg;
 
 export class WppModel {
   constructor() {
-    this.clients = new Map(); 
+    this.clients = new Map();
     this.isAuthenticated = new Map();
   }
 
-  initClient = async (number) => {
+  initClient = async (number, res) => {
     const store = new MongoStore({ mongoose });
 
     const client = new Client({
       authStrategy: new RemoteAuth({
         store,
         backupSyncIntervalMs: 300000,
-        clientId: number, // Usa el número como identificador del cliente
+        clientId: number,
       }),
       qrMaxRetries: 5,
       puppeteer: { headless: true },
@@ -27,9 +27,9 @@ export class WppModel {
 
     // Guardar el cliente en el objeto `clients`
     this.clients.set(number, client);
-    
+
     client.on('qr', (qr) => {
-      console.log(`Código QR para ${number}. Escanéalo para autenticar.`);
+      res.status(200).json({ message: `Código QR para ${number}. Escanéalo para autenticar.`, qr: `${qr}` });
       qrcode.generate(qr, { small: true });
     });
 
@@ -37,6 +37,7 @@ export class WppModel {
       console.log(`Sesión guardada en la base de datos para el número: ${number}.`);
 
       const sessionData = client.authState;
+
       try {
         await WhatsAppSession.findOneAndUpdate(
           { clientId: number },
@@ -50,7 +51,7 @@ export class WppModel {
 
     client.on('authenticated', () => {
       console.log(`Cliente de WhatsApp autenticado para el número: ${number}.`);
-      this.isAuthenticated.set(number, true); 
+      this.isAuthenticated.set(number, true);
     });
 
     client.on('ready', () => {
@@ -59,22 +60,22 @@ export class WppModel {
 
     client.on('auth_failure', () => {
       console.error(`Error de autenticación para el número: ${number}.`);
-      this.isAuthenticated.set(number, false); // Marca al cliente como no autenticado
+      this.isAuthenticated.set(number, false);
     });
 
     client.on('disconnected', async () => {
       console.log(`Cliente de WhatsApp desconectado para el número: ${number}.`);
-    
+
       try {
         await client.destroy();
         console.log(`Cliente de WhatsApp destruido para el número: ${number}.`);
       } catch (error) {
         console.error(`Error al destruir el cliente de WhatsApp para el número ${number}:`, error);
       }
-    
+
       this.clients.delete(number);
       this.isAuthenticated.delete(number);
-    
+
       try {
         await WhatsAppSession.deleteOne({ clientId: number });
         console.log(`Sesión eliminada de la base de datos para el número: ${number}.`);
@@ -82,7 +83,7 @@ export class WppModel {
         console.error(`Error al eliminar la sesión de la base de datos para el número ${number}:`, error);
       }
     });
-    
+
 
     await client.initialize();
   };
@@ -95,9 +96,9 @@ export class WppModel {
     };
 
     for (const session of sessions) {
-      const { clientId } = session; // Obtén el identificador único (en este caso, el número)
+      const { clientId } = session;
       try {
-        await this.initClient(clientId); // Inicializa el cliente para cada número
+        await this.initClient(clientId);
         console.log(`Sesión con el id: ${clientId} restaurada.`);
       } catch (clientError) {
         console.error(`Error al inicializar el cliente para el ID ${clientId}:`, clientError.message);
@@ -106,11 +107,15 @@ export class WppModel {
   };
 
   checkStatus = async (number) => {
-    if (this.isAuthenticated.get(number)) {
-      return true;
-    } else {
-      return false;
+    const client = this.clients.get(number);
+
+    if (!client) {
+      return { status: "DISCONNECT" }
     }
+
+    const status = await client.getState();
+
+    return { status };
   }
 
   logout = async (number) => {
@@ -122,9 +127,10 @@ export class WppModel {
     }
 
     try {
-      await client.logout(); 
-      this.clients.delete(number); 
-      this.isAuthenticated.delete(number); 
+      await client.logout();
+      await client.destroy();
+      this.clients.delete(number);
+      this.isAuthenticated.delete(number);
 
       await WhatsAppSession.deleteOne({ clientId: number });
       console.log(`Sesión de WhatsApp eliminada para el número: ${number}.`);
@@ -138,62 +144,24 @@ export class WppModel {
 
 
 
+  sendMessage = async ({ number, recipient, message }) => {
+    const client = this.clients.get(number);
 
+    if (!client) {
+      return { noClient: true };
+    }
 
+    if (!this.isAuthenticated.get(number)) {
+      return { noAuth: true };
+    }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  // adminLogin = (req, res) => {
-  //   const { number } = req.params;
-  //   const client = this.clients.get(number);
-
-  //   if (client && !this.isAuthenticated.get(number)) {
-  //     client.once('qr', (qr) => {
-  //       qrcode.generate(qr, { small: true });
-  //       res.status(200).json({ message: `Escanea el código QR para autenticar ${number}.`, qr });
-  //     });
-  //   } else if (this.isAuthenticated.get(number)) {
-  //     res.status(200).json({ message: `Número ${number} ya autenticado.` });
-  //   } else {
-  //     res.status(500).json({ message: `Cliente no inicializado para el número ${number}.` });
-  //   }
-  // }
-
-  // sendMessage = async (req, res) => {
-  //   const { number, recipient, message } = req.body;
-  //   const client = this.clients.get(number);
-
-  //   if (!client) {
-  //     res.status(500).json({ message: `Cliente no inicializado para el número ${number}.` });
-  //     return;
-  //   }
-
-  //   if (!this.isAuthenticated.get(number)) {
-  //     res.status(503).json({ message: 'Cliente no autenticado. Solicita autenticación.' });
-  //     return;
-  //   }
-
-  //   try {
-  //     const chatId = `${recipient}@c.us`;
-  //     await client.sendMessage(chatId, message);
-  //     res.status(200).json({ message: 'Mensaje enviado con éxito' });
-  //   } catch (error) {
-  //     console.error('Error al enviar mensaje:', error);
-  //     res.status(500).json({ message: 'Error al enviar mensaje', error });
-  //   }
-  // };
+    try {
+      const chatId = `${recipient}@c.us`;
+      const result = await client.sendMessage(chatId, message);
+      console.log(result);
+      return { success: true }
+    } catch (error) {
+      console.error('Error al enviar mensaje:', error);
+    }
+  };
 }
