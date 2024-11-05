@@ -5,7 +5,7 @@ import logger from 'morgan';
 import cookieParser from 'cookie-parser';
 import { connectToMongoDB } from './db.js'; // Importa la función de conexión
 import { createWppRouter } from './whatsapp-web/routes/wpp.routes.js';
-import { WppController } from "./whatsapp-web/controllers/wpp.controller.js";
+import { WppModel } from "./whatsapp-web/models/wpp.model.js";
 
 dotenv.config();
 
@@ -17,8 +17,8 @@ export const createApp = async () => {
   // Conectar a MongoDB
   await connectToMongoDB();
 
-  const wppController = new WppController();
-  await wppController.initializeWhatsAppClient();
+  const wppModel = new WppModel();
+  await wppModel.restoreSessions();
 
   const app = express();
 
@@ -35,9 +35,6 @@ export const createApp = async () => {
 
   // Rutas
   app.use('/api', createWppRouter());
-  app.use('/hola', (req, res)=> {
-    res.json("hola");
-  })
 
   // Manejo de rutas no encontradas
   app.use((req, res) => {
