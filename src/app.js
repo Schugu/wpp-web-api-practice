@@ -34,7 +34,7 @@ export const createApp = async () => {
   app.use(logger("dev"));
 
   // Rutas
-  app.use('/api', createWppRouter());
+  app.use('/api', createWppRouter({wppModel}));
 
   // Manejo de rutas no encontradas
   app.use((req, res) => {

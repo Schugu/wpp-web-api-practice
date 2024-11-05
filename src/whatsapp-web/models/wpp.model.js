@@ -8,8 +8,8 @@ const { Client, RemoteAuth } = pkg;
 
 export class WppModel {
   constructor() {
-    this.clients = new Map(); // Almacena las instancias de clientes por número
-    this.isAuthenticated = new Map(); // Almacena el estado de autenticación de cada número
+    this.clients = new Map(); 
+    this.isAuthenticated = new Map();
   }
 
   initClient = async (number) => {
@@ -27,33 +27,30 @@ export class WppModel {
 
     // Guardar el cliente en el objeto `clients`
     this.clients.set(number, client);
-
-    // Eventos de autenticación y mensajes
+    
     client.on('qr', (qr) => {
       console.log(`Código QR para ${number}. Escanéalo para autenticar.`);
       qrcode.generate(qr, { small: true });
     });
 
-
     client.on('remote_session_saved', async () => {
       console.log(`Sesión guardada en la base de datos para el número: ${number}.`);
-    
-      // Asegúrate de que `number` es un valor válido antes de guardar
-      if (number !== null && number !== undefined) {
-        const sessionData = client.authState;
+
+      const sessionData = client.authState;
+      try {
         await WhatsAppSession.findOneAndUpdate(
           { clientId: number },
           { $set: { sessionData } },
           { upsert: true }
         );
-      } else {
-        console.error("Número inválido (null o undefined), no se puede guardar la sesión.");
+      } catch (error) {
+        console.log("Error al guardar la sessión en la base de datos.");
       }
     });
 
     client.on('authenticated', () => {
       console.log(`Cliente de WhatsApp autenticado para el número: ${number}.`);
-      this.isAuthenticated.set(number, true); // Marca al cliente como autenticado
+      this.isAuthenticated.set(number, true); 
     });
 
     client.on('ready', () => {
@@ -65,41 +62,34 @@ export class WppModel {
       this.isAuthenticated.set(number, false); // Marca al cliente como no autenticado
     });
 
-    client.on('disconnected', () => {
+    client.on('disconnected', async () => {
       console.log(`Cliente de WhatsApp desconectado para el número: ${number}.`);
-      this.clients.delete(number); // Remueve el cliente desconectado
-      this.isAuthenticated.delete(number); // Remueve el estado de autenticación
+    
+      try {
+        await client.destroy();
+        console.log(`Cliente de WhatsApp destruido para el número: ${number}.`);
+      } catch (error) {
+        console.error(`Error al destruir el cliente de WhatsApp para el número ${number}:`, error);
+      }
+    
+      this.clients.delete(number);
+      this.isAuthenticated.delete(number);
+    
+      try {
+        await WhatsAppSession.deleteOne({ clientId: number });
+        console.log(`Sesión eliminada de la base de datos para el número: ${number}.`);
+      } catch (error) {
+        console.error(`Error al eliminar la sesión de la base de datos para el número ${number}:`, error);
+      }
     });
+    
 
     await client.initialize();
   };
 
-  // // Inicializar todas las sesiones guardadas
-  // restoreSessions = async () => {
-  //   const sessions = await WhatsAppSession.find({});
-
-  //   if (sessions.length === 0) {
-  //     console.warn('No se encontraron sesiones para restaurar.');
-  //     return;
-  //   };
-
-  //   for (const session of sessions) {
-  //     const { clientId } = session; 
-  //     try {
-  //       await this.initClient(clientId);
-  //     } catch (clientError) {
-  //       console.error(`Error al inicializar el cliente para el ID ${clientId}:`, clientError.message);
-  //     }
-  //   }
-
-  //   console.log('Todas las sesiones restauradas');
-  // };
-
-
-
   restoreSessions = async () => {
     const sessions = await WhatsAppSession.find({});
-    
+
     if (sessions.length === 0) {
       console.warn('No se encontraron sesiones para restaurar.');
     };
@@ -115,13 +105,36 @@ export class WppModel {
     }
   };
 
-  checkStatus= async (number) => {
+  checkStatus = async (number) => {
     if (this.isAuthenticated.get(number)) {
       return true;
     } else {
       return false;
     }
   }
+
+  logout = async (number) => {
+    const client = this.clients.get(number);
+
+    if (!client) {
+      console.error(`Cliente no inicializado para el número ${number}.`);
+      return false;
+    }
+
+    try {
+      await client.logout(); 
+      this.clients.delete(number); 
+      this.isAuthenticated.delete(number); 
+
+      await WhatsAppSession.deleteOne({ clientId: number });
+      console.log(`Sesión de WhatsApp eliminada para el número: ${number}.`);
+
+      return true;
+    } catch (error) {
+      console.error(`Error al cerrar la sesión para el número ${number}:`, error);
+      return false;
+    }
+  };
 
 
 
